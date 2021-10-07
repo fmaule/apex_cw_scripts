@@ -3,6 +3,7 @@ global function SetupOverrideSpawnSurvivalCharacter
 global function SetupSurvival
 global function SetupModelSpawner
 global function SetupSurvivalLoot
+global function SetupCustomLoot
 global function SetupSurvivalIncapShieldBot
 global function SetupAbilities
 global function SetupWeapons
@@ -82,6 +83,7 @@ void function SetupWeapons()
 	#endif
 }
 
+
 void function SetupSurvival()
 {
 	#if UI
@@ -106,6 +108,13 @@ void function SetupSurvivalLoot( var categories )
 {
 	#if UI
 		RunClientScript( "SetupSurvivalLoot", categories )
+	#endif
+}
+
+void function SetupCustomLoot( var categories )
+{
+	#if UI
+		RunClientScript( "SetupCustomLoot", categories )
 	#endif
 }
 
@@ -145,14 +154,16 @@ void function SetupAbilities()
 void function SetupModelSpawner()
 {
 	#if UI
-	SetupDevCommand( "marvin", "SetMDLSpawnerModel mdl/robots/marvin/marvin_gladcard.rmdl" )
-	SetupDevCommand( "droppod_loot_LL_holo", "SetMDLSpawnerModel mdl/vehicle/droppod_loot/droppod_loot_LL_holo.rmdl" )
-	SetupDevCommand( "death_box_01", "SetMDLSpawnerModel mdl/props/death_box/death_box_01.rmdl" )
-	SetupDevCommand( "drone_frag", "mdl/robots/drone_frag/drone_frag.rmdl" )
-	SetupDevCommand( "droppod_fireteam", "SetMDLSpawnerModel mdl/vehicle/droppod_fireteam/droppod_fireteam.rmdl" )
-	SetupDevCommand( "droppod_loot_LL_holo", "mdl/vehicle/droppod_loot/droppod_loot_LL_holo.rmdl" )
-	#endif
-}
+	SetupDevCommand( "Mr, Marvin", "SetMDLSpawnerModel mdl/robots/marvin/marvin_gladcard.rmdl" )
+	SetupDevCommand( "Dropped Loot Hollo", "SetMDLSpawnerModel mdl/vehicle/droppod_loot/droppod_loot_LL_holo.rmdl" )
+	SetupDevCommand( "Death Box", "SetMDLSpawnerModel mdl/props/death_box/death_box_01.rmdl" )
+	SetupDevCommand( "TitanFall Drop Pod", "SetMDLSpawnerModel mdl/vehicle/droppod_fireteam/droppod_fireteam.rmdl" )
+        SetupDevCommand( "Tree, Kings Canyon ONLY", "SetMDLSpawnerModel mdl/foliage/tree_green_forest_med_01.rmdl" )
+	SetupDevCommand( "Leaves, Kings Canyon ONLY", "SetMDLSpawnerModel mdl/foliage/leaves_ground_spread_02.rmdl" )
+	SetupDevCommand( "Bush, Kings Canyon ONLY", "SetMDLSpawnerModel mdl/foliage/bush_green_forest_01.rmdl" )
+        #endif
+}     
+
 
 void function SetupSurvivalIncapShieldBot()
 {

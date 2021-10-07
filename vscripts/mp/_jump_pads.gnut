@@ -36,13 +36,7 @@ void function JumpPad_CreatedCallback( entity jumpPad )
   vector origin = jumpPad.GetOrigin() // should this allow weapon_jump_pad to be OriginToGround
 	vector angles = jumpPad.GetAngles()
 
-  entity mover = CreateScriptMover( origin, angles )
-
-	if( IsValid( jumpPad.GetParent() ) )
-	{
-		mover.SetParent( jumpPad.GetParent() )
-	}
-
+  entity mover = CreateScriptMover( jumpPad.GetOrigin(), angles )
   jumpPad.SetParent( mover )
 
   thread JumpPad_PlayAnims( jumpPad, mover )

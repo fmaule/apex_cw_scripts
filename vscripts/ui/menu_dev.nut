@@ -278,16 +278,20 @@ void function SetupDefaultDevCommandsMP()
 		SetupDevMenu( "Change Character", SetDevMenu_SurvivalCharacter )
 		SetupDevMenu( "Override Spawn Character", SetDevMenu_OverrideSpawnSurvivalCharacter )
 		SetupDevMenu( "Survival", SetDevMenu_Survival )
+		SetupDevMenu( "Custom Survival Weapons", SetDevMenu_CustomLoot, "main_weapon")
+		SetupDevMenu( "Custom Survival Attachments", SetDevMenu_CustomLoot, "attachment")
 		SetupDevMenu( "Survival Weapons", SetDevMenu_SurvivalLoot, "main_weapon" )
 		SetupDevMenu( "Survival Attachments", SetDevMenu_SurvivalLoot, "attachment" )
 		SetupDevMenu( "Survival Helmets", SetDevMenu_SurvivalLoot, "helmet" )
 		SetupDevMenu( "Survival Armor", SetDevMenu_SurvivalLoot, "armor" )
 		SetupDevMenu( "Survival Backpack", SetDevMenu_SurvivalLoot, "backpack" )
+		
 		#if(false)
 
 #endif
 		SetupDevMenu( "Survival Incap Shield", SetDevMenu_SurvivalLoot, "incapshield" )
 		SetupDevMenu( "Survival Incap Shield Debugging", SetDevMenu_SurvivalIncapShieldBots )
+
 
 		string itemsString = "ordnance ammo health custom_pickup"
 		#if(true)
@@ -605,6 +609,10 @@ void function SetDevMenu_SurvivalLoot( var categories )
 	thread ChangeToThisMenu_WithOpParm( SetupSurvivalLoot, categories )
 }
 
+void function SetDevMenu_CustomLoot( var categories )
+{
+	thread ChangeToThisMenu_WithOpParm( SetupCustomLoot, categories )
+}
 
 void function SetDevMenu_SurvivalIncapShieldBots( var _ )
 {
