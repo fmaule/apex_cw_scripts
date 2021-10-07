@@ -1,6 +1,9 @@
 global function _CustomTDM_Init
 global function _RegisterLocation
 
+int teamCount
+array<int> teamArr
+table playersInfo
 
 enum eTDMState
 {
@@ -19,6 +22,8 @@ struct {
     array<string> whitelistedWeapons
 
     entity bubbleBoundary
+    int nextMapIndex = 0
+    bool mapIndexChanged = true
 } file;
 
 
@@ -51,9 +56,9 @@ void function _RegisterLocation(LocationSettings locationSettings)
 
 LocPair function _GetVotingLocation()
 {
-    switch(GetMapName())
+     switch(GetMapName())
     {
-        case "mp_rr_canyonlands_staging":
+       case "mp_rr_canyonlands_staging":
             return NewLocPair(<26794, -6241, -27479>, <0, 0, 0>)
         case "mp_rr_canyonlands_64k_x_64k":
         case "mp_rr_canyonlands_mu1":
@@ -96,20 +101,47 @@ void function DestroyPlayerProps()
     file.playerSpawnedProps.clear()
 }
 
+bool function HasNum(array<int> arr, int num)
+{
+    foreach(t in arr)
+    {
+        if(t == num)
+        {
+            return true
+        }
+    }
 
+    return false
+}
 
 void function VotingPhase()
 {
     DestroyPlayerProps();
     SetGameState(eGameState.MapVoting)
     
-    //Reset scores
-    GameRules_SetTeamScore(TEAM_IMC, 0)
-    GameRules_SetTeamScore(TEAM_MILITIA, 0)
-    
-    foreach(player in GetPlayerArray()) 
+	foreach(player in GetPlayerArray())
     {
-        if(!IsValid(player)) continue;
+        if(!HasNum(teamArr, player.GetTeam()))
+        {
+            teamArr.append(player.GetTeam())
+            teamCount = teamArr.len()
+            GameRules_SetTeamScore(player.GetTeam(), 0) //Comentar esta línea implica que en la siguiente ronda no se va a resetear el marcador. Si se cambia de nivel sí se resetea el score.
+        }
+    }
+
+    
+    if(teamArr.len() == 0)
+    {
+        printt("Team array empty")
+    }
+
+
+
+
+    foreach(player in GetPlayerArray()) 
+    {	
+        if(!IsValid(player)) 
+		continue
         _HandleRespawn(player)
         MakeInvincible(player)
 		HolsterAndDisableWeapons( player )
@@ -119,9 +151,15 @@ void function VotingPhase()
         player.UnfreezeControlsOnServer();      
     }
     wait Deathmatch_GetVotingTime()
-    int choice = RandomIntRangeInclusive(0, file.locationSettings.len() - 1)
 
-    file.selectedLocation = file.locationSettings[choice]
+	if (!file.mapIndexChanged) 
+    {
+        file.nextMapIndex = (file.nextMapIndex + 1 ) % file.locationSettings.len()
+    } 
+	
+    int choice = file.nextMapIndex
+    file.mapIndexChanged = false // reset for next voting phase
+    file.selectedLocation = file.locationSettings[choice]	
     
     foreach(player in GetPlayerArray())
     {
@@ -132,7 +170,7 @@ void function VotingPhase()
 void function StartRound() 
 {
     SetGameState(eGameState.Playing)
-    
+    printt("max teams : " + GetCurrentPlaylistVarInt("max_teams",20))
     foreach(player in GetPlayerArray())
     {
         if(IsValid(player))
@@ -151,9 +189,11 @@ void function StartRound()
         
     }
     
+    file.bubbleBoundary = CreateBubbleBoundary(file.selectedLocation)
 
     foreach(player in GetPlayerArray())
     {
+		if(!IsValid(player)) continue;
         if(IsValid(player))
             Remote_CallFunction_NonReplay(player, "ServerCallback_TDM_DoAnnouncement", 4, eTDMAnnounce.MAP_FLYOVER)
     }
@@ -179,21 +219,67 @@ void function StartRound()
         
     }
 
-    
     file.bubbleBoundary = CreateBubbleBoundary(file.selectedLocation)
+
 
     foreach(team, v in GetPlayerTeamCountTable())
     {
         array<entity> squad = GetPlayerArrayOfTeam(team)
         //thread RespawnPlayersInDropshipAtPoint(squad, squad[0].GetOrigin(), squad[0].GetAngles())
     }
-    float endTime = Time() + GetCurrentPlaylistVarFloat("round_time", 480)
+    float endTime = Time() + GetCurrentPlaylistVarFloat("round_time", 900)
     while( Time() <= endTime )
 	{
         if(file.tdmState == eTDMState.WINNER_DECIDED)
             break
 		WaitFrame()
 	}
+	array<int> scoreArr;
+    foreach(t in teamArr)
+    {
+        scoreArr.append(GameRules_GetTeamScore(t));
+    }
+
+    scoreArr.sort();
+    scoreArr.reverse();
+
+    int winnerScore = 0;
+
+    if(scoreArr.len() != 0)
+    {
+        winnerScore = scoreArr[0]
+    }
+    else
+    {
+        printt("Score array empty no winner")
+    }
+
+    int winnerTeam = 97
+
+    if(winnerScore != 0)
+    {
+        foreach(player in GetPlayerArray())
+        {
+            if(GameRules_GetTeamScore(player.GetTeam()) == winnerScore)
+            {
+                winnerTeam = player.GetTeam();
+                break;
+            }
+            
+        }
+
+        foreach( entity player in GetPlayerArray() )
+        {
+            thread EmitSoundOnEntityOnlyToPlayer( player, player, "diag_ap_aiNotify_winnerFound" )
+        }
+
+
+    }
+	
+	 printt("winner team : " + winnerTeam);
+
+    teamArr.clear()
+		
     file.tdmState = eTDMState.IN_PROGRESS
 
     file.bubbleBoundary.Destroy()
@@ -218,78 +304,39 @@ void function ScreenFadeToFromBlack(entity player, float fadeTime = 1, float hol
 
 bool function ClientCommand_NextRound(entity player, array<string> args)
 {
-    if( !IsServer() ) return false;
-    file.tdmState = eTDMState.WINNER_DECIDED
+    if(!IsServer()) {
+        if (player == GetPlayerArray()[0]) {
+            print("switching round")
+        } else {
+            print("ERROR: only the host can switch rounds")
+            return false;
+        } 
+    }
+    if (args.len()) {
+        try{
+            int mapIndex = int(args[0])
+            file.nextMapIndex = (((mapIndex >= 0 ) && (mapIndex < file.locationSettings.len())) ? mapIndex : RandomIntRangeInclusive(0, file.locationSettings.len() - 1))
+            file.mapIndexChanged = true
+        } catch (e) {}
+
+        try{
+            string now = args[0]
+            if (now == "now")
+            {
+                file.tdmState = eTDMState.WINNER_DECIDED
+            }
+        } catch(e1) {}
+
+        try{
+            string now = args[1]
+            if (now == "now")
+            {
+                file.tdmState = eTDMState.WINNER_DECIDED
+            }
+        } catch(e2) {}
+    } 
     return true
 }
-
-bool function ClientCommand_GiveWeapon(entity player, array<string> args)
-{
-    if(args.len() < 2) return false;
-
-    bool foundMatch = false
-
-
-    foreach(weaponName in file.whitelistedWeapons)
-    {
-        if(args[1] == weaponName)
-        {
-            foundMatch = true
-            break
-        }
-    }
-
-    if(file.whitelistedWeapons.find(args[1]) == -1 && file.whitelistedWeapons.len()) return false
-
-    entity weapon
-
-    try {
-        entity primary = player.GetNormalWeapon( WEAPON_INVENTORY_SLOT_PRIMARY_0 )
-        entity secondary = player.GetNormalWeapon( WEAPON_INVENTORY_SLOT_PRIMARY_1 )
-        entity tactical = player.GetOffhandWeapon( OFFHAND_TACTICAL )
-        entity ultimate = player.GetOffhandWeapon( OFFHAND_ULTIMATE )
-        switch(args[0]) 
-        {
-            case "p":
-            case "primary":
-                if( IsValid( primary ) ) player.TakeWeaponByEntNow( primary )
-                weapon = player.GiveWeapon(args[1], WEAPON_INVENTORY_SLOT_PRIMARY_0)
-                break
-            case "s":
-            case "secondary":
-                if( IsValid( secondary ) ) player.TakeWeaponByEntNow( secondary )
-                weapon = player.GiveWeapon(args[1], WEAPON_INVENTORY_SLOT_PRIMARY_1)
-                break
-            case "t":
-            case "tactical":
-                if( IsValid( tactical ) ) player.TakeOffhandWeapon( OFFHAND_TACTICAL )
-                weapon = player.GiveOffhandWeapon(args[1], OFFHAND_TACTICAL)
-                break
-            case "u":
-            case "ultimate":
-                if( IsValid( ultimate ) ) player.TakeOffhandWeapon( OFFHAND_ULTIMATE )
-                weapon = player.GiveOffhandWeapon(args[1], OFFHAND_ULTIMATE)
-                break
-        }
-    }
-    catch( e1 ) { }
-
-    if( args.len() > 2 )
-    {
-        try {
-            weapon.SetMods(args.slice(2, args.len()))
-        }
-        catch( e2 ) {
-            print(e2)
-        }
-    }
-    
-    if( IsValid( weapon) && !weapon.IsWeaponOffhand() ) player.SetActiveWeaponBySlot(eActiveInventorySlot.mainHand, GetSlotForWeapon(player, weapon))
-    return true
-    
-}
-
-
 
 void function _OnPlayerConnected(entity player)
 {
@@ -305,6 +352,34 @@ void function _OnPlayerConnected(entity player)
     }
 
     
+	
+	
+	
+	   //GetTeamNum
+    if(!HasNum(teamArr, player.GetTeam()))
+    {
+        teamArr.append(player.GetTeam())
+        teamCount = teamArr.len()
+        GameRules_SetTeamScore(player.GetTeam(), 0)
+    }
+
+    foreach(idx,val in teamArr)
+    {
+        print("index: " + idx + " value: " + val + "\n")
+    }
+
+    
+    teamCount = teamArr.len();
+    printt("teamCount:" + teamCount)
+
+    
+    printt("playerName:" + player.GetPlayerName())
+
+	
+	
+	
+	
+	
     switch(GetGameState())
     {
 
@@ -321,9 +396,6 @@ void function _OnPlayerConnected(entity player)
     }
 }
 
-
-
-
 void function _OnPlayerDied(entity victim, entity attacker, var damageInfo) 
 {
 
@@ -339,7 +411,8 @@ void function _OnPlayerDied(entity victim, entity attacker, var damageInfo)
             
 
             victim.p.storedWeapons = StoreWeapons(victim)
-            
+            float reservedTime = max(1, Deathmatch_GetRespawnDelay() - 6)// so we dont immediately go to killcam
+            wait reservedTime
             if(Spectator_GetReplayIsEnabled() && IsValid(victim) && ShouldSetObserverTarget( attacker ))
             {
                 victim.SetObserverTarget( attacker )
@@ -347,10 +420,13 @@ void function _OnPlayerDied(entity victim, entity attacker, var damageInfo)
                 victim.StartObserverMode( OBS_MODE_IN_EYE )
                 Remote_CallFunction_NonReplay(victim, "ServerCallback_KillReplayHud_Activate")
             }
-            
-            wait Deathmatch_GetRespawnDelay()
 
-             
+            if(IsValid(attacker) && attacker.IsPlayer())
+            {
+                Remote_CallFunction_NonReplay(attacker, "ServerCallback_TDM_PlayerKilled")
+            }
+			
+			wait max(0, Deathmatch_GetRespawnDelay() - reservedTime)
 
             if(IsValid(victim) )
             {
@@ -359,7 +435,6 @@ void function _OnPlayerDied(entity victim, entity attacker, var damageInfo)
 
         }
 
-        
         // What happens to attacker
         void functionref() attackerHandleFunc = void function() : (victim, attacker, damageInfo)  {
             if(IsValid(attacker) && attacker.IsPlayer() && IsAlive(attacker) && attacker != victim)
@@ -378,7 +453,6 @@ void function _OnPlayerDied(entity victim, entity attacker, var damageInfo)
                 PlayerRestoreHP(attacker, 100, Equipment_GetDefaultShieldHP())
             }
         }
-        
         thread victimHandleFunc()
         thread attackerHandleFunc()
         //Tell each player to update their Score RUI
@@ -481,15 +555,10 @@ entity function CreateBubbleBoundary(LocationSettings location)
     bubbleShield.kv.rendercolor = "127 73 37"
     DispatchSpawn( bubbleShield )
 
-
-
     thread MonitorBubbleBoundary(bubbleShield, bubbleCenter, bubbleRadius)
 
-
     return bubbleShield
-
 }
-
 
 void function MonitorBubbleBoundary(entity bubbleShield, vector bubbleCenter, float bubbleRadius)
 {
@@ -509,7 +578,6 @@ void function MonitorBubbleBoundary(entity bubbleShield, vector bubbleCenter, fl
     }
     
 }
-
 
 void function PlayerRestoreHP(entity player, float health, float shields)
 {
@@ -539,8 +607,19 @@ void function GrantSpawnImmunity(entity player, float duration)
 
 LocPair function _GetAppropriateSpawnLocation(entity player)
 {
-    int ourTeam = player.GetTeam()
+    bool needSelectRespawn = true
+    if(!IsValid(player))
+    {
+        needSelectRespawn = false
+    }
+    
+    int ourTeam = 0;
 
+    if(needSelectRespawn)
+    {
+        ourTeam = player.GetTeam()
+    }
+    
     LocPair selectedSpawn = _GetVotingLocation()
 
     switch(GetGameState())
@@ -552,6 +631,8 @@ LocPair function _GetAppropriateSpawnLocation(entity player)
         float maxDistToEnemy = 0
         foreach(spawn in file.selectedLocation.spawns)
         {
+			if (needSelectRespawn)
+            {
             vector enemyOrigin = GetClosestEnemyToOrigin(spawn.origin, ourTeam)
             float distToEnemy = Distance(spawn.origin, enemyOrigin)
 
@@ -559,6 +640,11 @@ LocPair function _GetAppropriateSpawnLocation(entity player)
             {
                 maxDistToEnemy = distToEnemy
                 selectedSpawn = spawn
+            }
+        }
+		else
+            {
+               selectedSpawn = spawn
             }
         }
         break
@@ -594,7 +680,69 @@ void function TpPlayerToSpawnPoint(entity player)
 
     player.SetOrigin(loc.origin)
     player.SetAngles(loc.angles)
-
-    
     PutEntityInSafeSpot( player, null, null, player.GetOrigin() + <0,0,128>, player.GetOrigin() )
+}
+
+bool function ClientCommand_GiveWeapon(entity player, array<string> args)
+{
+    if(args.len() < 2) return false;
+
+    bool foundMatch = false
+
+
+    foreach(weaponName in file.whitelistedWeapons)
+    {
+        if(args[1] == weaponName)
+        {
+            foundMatch = true
+            break
+        }
+    }
+
+    if(file.whitelistedWeapons.find(args[1]) == -1 && file.whitelistedWeapons.len()) return false
+
+    entity weapon
+
+    try {
+        entity primary = player.GetNormalWeapon( WEAPON_INVENTORY_SLOT_PRIMARY_0 )
+        entity secondary = player.GetNormalWeapon( WEAPON_INVENTORY_SLOT_PRIMARY_1 )
+        entity tactical = player.GetOffhandWeapon( OFFHAND_TACTICAL )
+        entity ultimate = player.GetOffhandWeapon( OFFHAND_ULTIMATE )
+        switch(args[0]) 
+        {
+            case "p":
+            case "primary":
+                if( IsValid( primary ) ) player.TakeWeaponByEntNow( primary )
+                weapon = player.GiveWeapon(args[1], WEAPON_INVENTORY_SLOT_PRIMARY_0)
+                break
+            case "s":
+            case "secondary":
+                if( IsValid( secondary ) ) player.TakeWeaponByEntNow( secondary )
+                weapon = player.GiveWeapon(args[1], WEAPON_INVENTORY_SLOT_PRIMARY_1)
+                break
+            case "t":
+            case "tactical":
+                if( IsValid( tactical ) ) player.TakeOffhandWeapon( OFFHAND_TACTICAL )
+                weapon = player.GiveOffhandWeapon(args[1], OFFHAND_TACTICAL)
+                break
+            case "u":
+            case "ultimate":
+                if( IsValid( ultimate ) ) player.TakeOffhandWeapon( OFFHAND_ULTIMATE )
+                weapon = player.GiveOffhandWeapon(args[1], OFFHAND_ULTIMATE)
+                break
+        }
+    }
+    catch( e1 ) { }
+
+    if( args.len() > 2 )
+    {
+        try {
+            weapon.SetMods(args.slice(2, args.len()))
+        }
+        catch( e2 ) {
+            print(e2)
+        }
+    }
+    if( IsValid(weapon) && !weapon.IsWeaponOffhand() ) player.SetActiveWeaponBySlot(eActiveInventorySlot.mainHand, GetSlotForWeapon(player, weapon))
+    return true  
 }
